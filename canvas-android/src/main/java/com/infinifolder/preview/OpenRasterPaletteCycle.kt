@@ -23,6 +23,7 @@ internal object OpenRasterPaletteCycle {
     private const val MAX_PIXELS = 4_000_000
 
     internal data class Decoded(val bitmap: Bitmap, val animation: BitmapAnimation)
+    internal data class Attempt(val decoded: Decoded?, val diagnostic: String)
     internal data class Range(val first: Int, val last: Int)
     internal data class Cycle(
         val enabled: Boolean,
@@ -45,38 +46,70 @@ internal object OpenRasterPaletteCycle {
     )
     internal data class Document(val width: Int, val height: Int, val layers: List<Layer>)
 
-    fun decode(bytes: ByteArray, targetPixels: Int): Decoded? {
-        if (bytes.size > MAX_INPUT_BYTES || targetPixels <= 0) return null
-        val entries = readEntries(bytes) ?: return null
-        val xml = entries["stack.xml"] ?: return null
-        val document = parseStack(xml) ?: return null
-        if (document.width.toLong() * document.height > MAX_PIXELS) return null
+    fun decode(bytes: ByteArray, targetPixels: Int): Decoded? = decodeWithDiagnostics(bytes, targetPixels).decoded
+
+    fun decodeWithDiagnostics(bytes: ByteArray, targetPixels: Int): Attempt {
+        var xml: ByteArray? = null
+        fun fallback(reason: String, details: String = ""): Attempt {
+            val stack = xml?.toString(Charsets.UTF_8)?.replace(Regex("\\s+"), " ")?.take(1400)
+            val tail = listOf(details.takeIf(String::isNotBlank), stack?.let { "stack.xml=$it" })
+                .filterNotNull().joinToString("; ")
+            return Attempt(null, "result=static-fallback reason=$reason inputBytes=${bytes.size}" +
+                if (tail.isEmpty()) "" else "; $tail")
+        }
+        if (bytes.size > MAX_INPUT_BYTES) return fallback("input-over-limit-$MAX_INPUT_BYTES")
+        if (targetPixels <= 0) return fallback("invalid-target-pixels-$targetPixels")
+        val entries = readEntries(bytes) ?: return fallback("zip-rejected-or-resource-limit")
+        xml = entries["stack.xml"]
+        if (xml == null) return fallback("stack.xml-missing")
+        val document = parseStack(xml) ?: return fallback("stack.xml-parse-rejected")
+        val layerSummary = document.layers.mapIndexed { index, layer ->
+            val cycle = layer.cycle?.let { c ->
+                "cycle(enabled=${c.enabled},mode=rotate,intervalMs=${c.intervalMillis},step=${c.step}," +
+                    "direction=${if (c.reverse) "reverse" else "forward"},loop=${c.loop}," +
+                    "transparentIndex=${c.transparentIndex},paletteEntries=${c.paletteEntries}," +
+                    "ranges=${c.ranges.joinToString { "${it.first}-${it.last}" }})"
+            } ?: "no-cycle"
+            "$index:${layer.src}@${layer.x},${layer.y},visible=${layer.visible}," +
+                "opacity=${layer.opacity},composite=${layer.composite},$cycle"
+        }.joinToString("|")
+        val documentSummary = "canvas=${document.width}x${document.height} layers=$layerSummary"
+        if (document.width.toLong() * document.height > MAX_PIXELS) return fallback("canvas-over-pixel-limit", documentSummary)
         val cycleLayers = document.layers.withIndex().filter { it.value.cycle != null }
-        if (cycleLayers.size != 1) return null
+        if (cycleLayers.size != 1) return fallback("cycle-layer-count-${cycleLayers.size}", documentSummary)
         val (cycleIndex, cycleLayer) = cycleLayers.single()
-        val cycle = cycleLayer.cycle ?: return null
+        val cycle = cycleLayer.cycle ?: return fallback("cycle-metadata-missing", documentSummary)
         if (!cycle.enabled || !cycle.loop || !cycleLayer.visible || cycleLayer.src.isBlank() ||
-            document.layers.any { it.visible && it.composite != "svg:src-over" }) return null
-        val cycleEntry = entries[cycleLayer.src] ?: return null
-        val indexed = IndexedPngDecoder.decode(cycleEntry, MAX_PIXELS) ?: return null
-        if (!valid(cycle, indexed.palette.size)) return null
+            document.layers.any { it.visible && it.composite != "svg:src-over" }) {
+            return fallback("unsupported-cycle-or-composite-settings", documentSummary)
+        }
+        val cycleEntry = entries[cycleLayer.src] ?: return fallback("cycle-layer-png-missing", documentSummary)
+        val indexed = IndexedPngDecoder.decode(cycleEntry, MAX_PIXELS)
+            ?: return fallback("cycle-layer-png-not-supported ${IndexedPngDecoder.headerSummary(cycleEntry)}", documentSummary)
+        if (!valid(cycle, indexed.palette.size)) return fallback("palette-ranges-invalid paletteSize=${indexed.paletteSize}", documentSummary)
         cycle.transparentIndex?.let { indexed.palette[it] = indexed.palette[it] and 0x00ffffff }
 
         val scale = minOf(1f, targetPixels.toFloat() / maxOf(document.width, document.height))
         val width = (document.width * scale).roundToInt().coerceAtLeast(1)
         val height = (document.height * scale).roundToInt().coerceAtLeast(1)
-        if (width.toLong() * height > MAX_PIXELS) return null
+        if (width.toLong() * height > MAX_PIXELS) return fallback("scaled-canvas-over-pixel-limit", documentSummary)
         val lower = document.layers.indices.filter { it > cycleIndex && document.layers[it].visible }
         val upper = (cycleIndex - 1 downTo 0).filter { document.layers[it].visible }
-        val beforePixels = compose(document, entries, lower, width, height, scale) ?: return null
-        val afterPixels = if (upper.isEmpty()) null else compose(document, entries, upper, width, height, scale) ?: return null
+        val beforePixels = compose(document, entries, lower, width, height, scale)
+            ?: return fallback("lower-layer-compose-failed", documentSummary)
+        val afterPixels = if (upper.isEmpty()) null else compose(document, entries, upper, width, height, scale)
+            ?: return fallback("upper-layer-compose-failed", documentSummary)
         val opacity = (cycleLayer.opacity * 255f).roundToInt().coerceIn(0, 255)
         val animation = PaletteAnimation(width, height, beforePixels, afterPixels, cycleLayer,
             indexed, cycle, scale, opacity)
         val pixels = IntArray(width * height)
         animation.render(0L, pixels, true)
-        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888) ?: return null
-        return Decoded(bitmap, animation)
+        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+            ?: return fallback("bitmap-create-failed", documentSummary)
+        val pngSummary = IndexedPngDecoder.headerSummary(cycleEntry)
+        return Attempt(Decoded(bitmap, animation),
+            "result=animated $documentSummary indexedLayer=${cycleLayer.src} " +
+                "indexed=${indexed.width}x${indexed.height} paletteSize=${indexed.paletteSize} png=[$pngSummary]")
     }
 
     private fun readEntries(bytes: ByteArray): Map<String, ByteArray>? {

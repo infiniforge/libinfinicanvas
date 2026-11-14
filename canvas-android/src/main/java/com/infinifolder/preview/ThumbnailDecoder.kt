@@ -259,12 +259,13 @@ class ThumbnailDecoder(
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
         if(ext=="ora" || mimeTypeHint in setOf("image/openraster", "application/openraster")) {
             val bytes=readBytesForCustomDecoder(uri,null)?:return null
-            val extended=OpenRasterPaletteCycle.decode(bytes,targetPx)
+            val attempt=OpenRasterPaletteCycle.decodeWithDiagnostics(bytes,targetPx)
+            val extended=attempt.decoded
             if(extended!=null)return BitmapFrame(extended.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
                 source=uri.toString(),transformations=listOf("image.decode.ora-palette-cycle")))
-                .also{it.animation=extended.animation}
+                .also{it.animation=extended.animation;it.decodeDiagnostics=attempt.diagnostic}
             return LayeredImageDecoder.decode(bytes,targetPx,ext)?.let{BitmapFrame(it,provenance=io.github.gretchycat.infinistream.Provenance(
-                source=uri.toString(),transformations=listOf("image.decode.ora")))}
+                source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics=attempt.diagnostic}}
         }
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}

@@ -13,6 +13,42 @@ import kotlin.math.abs
 internal object IndexedPngDecoder {
     data class Image(val width: Int, val height: Int, val indices: ByteArray, val palette: IntArray, val paletteSize: Int)
 
+    /** Small, payload-free PNG inventory for diagnosing unsupported indexed layers. */
+    fun headerSummary(bytes: ByteArray): String {
+        if (bytes.size < 8 || bytes[0] != 0x89.toByte() || bytes[1] != 0x50.toByte() || bytes[2] != 0x4e.toByte()) {
+            return "signature=invalid bytes=${bytes.size}"
+        }
+        var width = 0
+        var height = 0
+        var depth = -1
+        var colorType = -1
+        var interlace = -1
+        var paletteEntries = -1
+        val chunks = mutableListOf<String>()
+        var offset = 8
+        while (offset + 12 <= bytes.size && chunks.size < 32) {
+            val length = u32be(bytes, offset)
+            if (length < 0 || length > bytes.size - offset - 12) {
+                chunks += "truncated"
+                break
+            }
+            val type = String(bytes, offset + 4, 4, Charsets.US_ASCII)
+            chunks += "$type:$length"
+            val data = offset + 8
+            when (type) {
+                "IHDR" -> if (length == 13L) {
+                    width = u32be(bytes, data).toInt(); height = u32be(bytes, data + 4).toInt()
+                    depth = u8(bytes, data + 8); colorType = u8(bytes, data + 9); interlace = u8(bytes, data + 12)
+                }
+                "PLTE" -> paletteEntries = (length / 3).toInt()
+            }
+            offset += length.toInt() + 12
+            if (type == "IEND") break
+        }
+        return "bytes=${bytes.size} ${width}x$height depth=$depth colorType=$colorType " +
+            "interlace=$interlace paletteEntries=$paletteEntries chunks=${chunks.joinToString(",")}"
+    }
+
     fun decode(bytes: ByteArray, maxPixels: Int = 4_000_000): Image? {
         if (bytes.size < 33 || !bytes.copyOfRange(0, 8).contentEquals(
                 byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))) return null

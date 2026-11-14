@@ -8,6 +8,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenRasterPaletteCycleTest {
+    @Test fun fallbackDiagnosticReportsStackAndCycleLayerInventory() {
+        val stack = """<image w="640" h="480"><stack><layer name="background" src="data/base.png" x="0" y="0"/></stack></image>"""
+        val bytes = java.io.ByteArrayOutputStream().also { output ->
+            java.util.zip.ZipOutputStream(output).use { zip ->
+                zip.putNextEntry(java.util.zip.ZipEntry("stack.xml"))
+                zip.write(stack.toByteArray())
+                zip.closeEntry()
+            }
+        }.toByteArray()
+
+        val attempt = OpenRasterPaletteCycle.decodeWithDiagnostics(bytes, 512)
+
+        assertNull(attempt.decoded)
+        assertTrue(attempt.diagnostic.contains("result=static-fallback reason=cycle-layer-count-0"))
+        assertTrue(attempt.diagnostic.contains("canvas=640x480"))
+        assertTrue(attempt.diagnostic.contains("data/base.png"))
+        assertTrue(attempt.diagnostic.contains("stack.xml="))
+    }
+
     @Test fun parsesUnqualifiedAttributesOnNamespacedExtensionElements() {
         val xml = """<?xml version="1.0"?>
             <image xmlns:im="${OpenRasterPaletteCycle.NAMESPACE}" w="275" h="116">

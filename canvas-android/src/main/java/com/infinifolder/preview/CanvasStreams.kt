@@ -14,6 +14,9 @@ class BitmapFrame @JvmOverloads constructor(val bitmap: Bitmap, private val owns
         internal set
     var animation:BitmapAnimation?=null
         internal set
+    /** Bounded ORA routing/parser summary for app diagnostics; excludes image payload bytes. */
+    var decodeDiagnostics:String?=null
+        internal set
     var animationDrawable:android.graphics.drawable.Drawable?=null
         internal set
     var animationDurationNanos:Long=0
@@ -101,7 +104,7 @@ object CanvasStreams {
         val frame = decoder.decodeViewerFrame(decodeUri, targetPixels,hint,ripMode,input.content.mimeType) ?: return null
         return BitmapFrame(frame.bitmap, provenance = input.provenance.copy(
             transformations = input.provenance.transformations + frame.metadata.provenance.transformations), warnings = input.warnings+frame.metadata.warnings)
-            .also{it.colorCycling=frame.colorCycling;it.animation=frame.animation;it.animationDrawable=frame.animationDrawable;it.animationDurationNanos=frame.animationDurationNanos}
+            .also{it.colorCycling=frame.colorCycling;it.animation=frame.animation;it.animationDrawable=frame.animationDrawable;it.animationDurationNanos=frame.animationDurationNanos;it.decodeDiagnostics=frame.decodeDiagnostics}
     }
 
     internal fun canUseNativeUri(input: StreamMetadata, uri: String): Boolean =
