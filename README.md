@@ -53,6 +53,18 @@ or scanline palettes report warnings and retain the still preview. Thumbnails
 remain static. The owner confirmed basic playback in the host image viewer on
 November 4, 2026; individual format variants and lifecycle checks remain pending.
 
+## Extended OpenRaster palette cycles
+
+`CanvasStreams.decodeBytes` and the full viewer decoder recognize the InfiniMedia
+OpenRaster palette-cycle extension directly from `stack.xml`. The indexed layer
+is rendered as an animated overlay over the other visible ORA layers, including
+when an authoring tool places it below an opaque base layer. The returned frame
+is mutable for host frame publication; the host still owns playback scheduling
+and bitmap lifecycle. Android SAX parser feature differences are handled without
+allowing external entity resolution, and DTD declarations are rejected. The
+Infinimedia runtime probe checks the shipped `main.ora` pixels, palette changes,
+cache playback/pause/resume and cleanup.
+
 ## Image animation
 
 `BitmapFrame.animation` optionally exposes a single-worker `BitmapAnimation`

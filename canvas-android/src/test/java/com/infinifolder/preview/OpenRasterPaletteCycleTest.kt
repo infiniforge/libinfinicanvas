@@ -8,6 +8,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenRasterPaletteCycleTest {
+    @Test fun rejectsDocumentTypeDeclarations() {
+        val xml = """<!DOCTYPE image [<!ENTITY cycle "blocked">]>
+            <image w="1" h="1"><stack><layer src="&cycle;"/></stack></image>""".toByteArray()
+        assertNull(OpenRasterPaletteCycle.parseStack(xml))
+    }
+
     @Test fun fallbackDiagnosticReportsStackAndCycleLayerInventory() {
         val stack = """<image w="640" h="480"><stack><layer name="background" src="data/base.png" x="0" y="0"/></stack></image>"""
         val bytes = java.io.ByteArrayOutputStream().also { output ->

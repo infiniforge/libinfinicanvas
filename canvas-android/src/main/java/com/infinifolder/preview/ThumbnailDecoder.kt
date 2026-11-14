@@ -251,12 +251,10 @@ class ThumbnailDecoder(
         decodeViewerFrame(uri,targetPx,extensionHint,ripMode,null)
     fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?,ripMode:RipScriptDecoder.Mode,mimeTypeHint:String?):BitmapFrame? {
         val pluginExtension=extensionHint?:extensionOf(uri)
-        CanvasCapabilities.decode(ImageDecodeRequest(this,uri,targetPx,pluginExtension,null,mimeTypeHint) { readStreamBytes(uri) }, pluginsOnly=true,operation=io.github.gretchycat.infinistream.Operations.DECODE)?.let {
-            return BitmapFrame(it)
-        }
-
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
+        // Extended ORA carries palette animation metadata in stack.xml. Let this richer
+        // decoder handle it before a generic image capability flattens the document.
         if(ext=="ora" || mimeTypeHint in setOf("image/openraster", "application/openraster")) {
             val bytes=readBytesForCustomDecoder(uri,null)?:return null
             val attempt=OpenRasterPaletteCycle.decodeWithDiagnostics(bytes,targetPx)
@@ -267,6 +265,10 @@ class ThumbnailDecoder(
             return LayeredImageDecoder.decode(bytes,targetPx,ext)?.let{BitmapFrame(it,provenance=io.github.gretchycat.infinistream.Provenance(
                 source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics=attempt.diagnostic}}
         }
+        CanvasCapabilities.decode(ImageDecodeRequest(this,uri,targetPx,pluginExtension,null,mimeTypeHint) { readStreamBytes(uri) }, pluginsOnly=true,operation=io.github.gretchycat.infinistream.Operations.DECODE)?.let {
+            return BitmapFrame(it)
+        }
+
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}
             val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString())}catch(error:Exception){

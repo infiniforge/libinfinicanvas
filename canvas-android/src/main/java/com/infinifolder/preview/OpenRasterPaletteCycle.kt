@@ -93,19 +93,20 @@ internal object OpenRasterPaletteCycle {
         val width = (document.width * scale).roundToInt().coerceAtLeast(1)
         val height = (document.height * scale).roundToInt().coerceAtLeast(1)
         if (width.toLong() * height > MAX_PIXELS) return fallback("scaled-canvas-over-pixel-limit", documentSummary)
-        val lower = document.layers.indices.filter { it > cycleIndex && document.layers[it].visible }
-        val upper = (cycleIndex - 1 downTo 0).filter { document.layers[it].visible }
-        val beforePixels = compose(document, entries, lower, width, height, scale)
-            ?: return fallback("lower-layer-compose-failed", documentSummary)
-        val afterPixels = if (upper.isEmpty()) null else compose(document, entries, upper, width, height, scale)
-            ?: return fallback("upper-layer-compose-failed", documentSummary)
+        // The extension defines its indexed layer as an animated overlay. Some authoring
+        // tools serialize it below an opaque backdrop, so ordinary stack order would hide it.
+        val staticLayers = document.layers.indices.filter { it != cycleIndex && document.layers[it].visible }
+        val backdrop = compose(document, entries, staticLayers, width, height, scale)
+            ?: return fallback("static-layer-compose-failed", documentSummary)
         val opacity = (cycleLayer.opacity * 255f).roundToInt().coerceIn(0, 255)
-        val animation = PaletteAnimation(width, height, beforePixels, afterPixels, cycleLayer,
+        val animation = PaletteAnimation(width, height, backdrop, null, cycleLayer,
             indexed, cycle, scale, opacity)
         val pixels = IntArray(width * height)
         animation.render(0L, pixels, true)
-        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        // Animation playback publishes subsequent frames with setPixels(), requiring mutability.
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             ?: return fallback("bitmap-create-failed", documentSummary)
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
         val pngSummary = IndexedPngDecoder.headerSummary(cycleEntry)
         return Attempt(Decoded(bitmap, animation),
             "result=animated $documentSummary indexedLayer=${cycleLayer.src} " +
@@ -151,12 +152,21 @@ internal object OpenRasterPaletteCycle {
 
     internal fun parseStack(bytes: ByteArray): Document? {
         if (bytes.size > 1024 * 1024) return null
+        if (Regex("<!\\s*DOCTYPE", RegexOption.IGNORE_CASE).containsMatchIn(bytes.toString(Charsets.UTF_8))) return null
         return try {
             val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = true }
+            runCatching { factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true) }
             val reader = factory.newSAXParser().xmlReader
-            reader.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            reader.setFeature("http://xml.org/sax/features/external-general-entities", false)
-            reader.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            // SAX feature support varies across Android releases. Apply supported flags and
+            // always reject external entity resolution even when a parser lacks those flags.
+            listOf(
+                "http://apache.org/xml/features/disallow-doctype-decl" to true,
+                "http://xml.org/sax/features/external-general-entities" to false,
+                "http://xml.org/sax/features/external-parameter-entities" to false
+            ).forEach { (feature, enabled) -> runCatching { reader.setFeature(feature, enabled) } }
+            reader.entityResolver = org.xml.sax.EntityResolver { _, _ ->
+                throw org.xml.sax.SAXException("External entities are not allowed in OpenRaster metadata")
+            }
             var width = 0
             var height = 0
             var invalid = false
