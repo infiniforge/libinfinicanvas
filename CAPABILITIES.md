@@ -47,7 +47,7 @@ tests invoke actual services/parsers rather than scripted success responses.
 
 ## New format modules
 
-New image and graphics handlers must validate bytes with a bounded signature or the real image parser, and expose bounded metadata extraction through `MetadataCapabilityHandler`. Report dimensions, pixel format/depth, and embedded metadata only when the decoder actually reads them. Follow the shared [Stream conformance rule](../libinfinistream/CAPABILITIES.md#format-module-validation-and-metadata-requirements).
+New image and graphics handlers must validate bytes with a bounded signature or the real image parser, and expose bounded metadata extraction through `MetadataCapabilityHandler`. Report dimensions, pixel format/depth, and embedded metadata only when the decoder actually reads them. Follow the shared [Stream conformance rule](https://github.com/infiniforge/libinfinistream/blob/main/CAPABILITIES.md#format-module-validation-and-metadata-requirements).
 
 ## Host audit record
 
