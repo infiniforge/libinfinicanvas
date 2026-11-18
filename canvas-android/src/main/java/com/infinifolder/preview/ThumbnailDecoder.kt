@@ -257,18 +257,13 @@ class ThumbnailDecoder(
         // decoder handle it before a generic image capability flattens the document.
         if(ext=="ora" || mimeTypeHint in setOf("image/openraster", "application/openraster")) {
             val bytes=readBytesForCustomDecoder(uri,null)?:return null
-            val attempt=OpenRasterPaletteCycle.decodeWithDiagnostics(bytes,targetPx)
-            val extended=attempt.decoded
-            if(extended!=null)return BitmapFrame(extended.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
-                source=uri.toString(),transformations=listOf("image.decode.ora-palette-cycle")))
-                .also{it.animation=extended.animation;it.decodeDiagnostics=attempt.diagnostic}
+            val animatedOra=OpenRasterAnimationDecoder.decode(bytes,targetPx)
+            if(animatedOra!=null)return BitmapFrame(animatedOra.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
+                source=uri.toString(),transformations=listOf("image.decode.ora-layers")))
+                .also{it.animationDrawable=animatedOra.drawable;it.animationDurationNanos=animatedOra.durationNanos;it.decodeDiagnostics=animatedOra.diagnostics}
             return LayeredImageDecoder.decode(bytes,targetPx,ext)?.let{BitmapFrame(it,provenance=io.github.gretchycat.infinistream.Provenance(
-                source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics=attempt.diagnostic}}
+                source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics="result=static-fallback reason=no-supported-animated-layer"}}
         }
-        CanvasCapabilities.decode(ImageDecodeRequest(this,uri,targetPx,pluginExtension,null,mimeTypeHint) { readStreamBytes(uri) }, pluginsOnly=true,operation=io.github.gretchycat.infinistream.Operations.DECODE)?.let {
-            return BitmapFrame(it)
-        }
-
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}
             val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString())}catch(error:Exception){
@@ -284,6 +279,9 @@ class ThumbnailDecoder(
             val image=readBytesForCustomDecoder(uri,null)?.let{IffColorCycling.decode(it,targetPx)}?:return null
             return BitmapFrame(image.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
                 source=uri.toString(),transformations=listOf("image.decode.iff")),warnings=image.warnings).also{it.colorCycling=image.animation}
+        }
+        CanvasCapabilities.decode(ImageDecodeRequest(this,uri,targetPx,pluginExtension,null,mimeTypeHint) { readStreamBytes(uri) }, pluginsOnly=true,operation=io.github.gretchycat.infinistream.Operations.DECODE)?.let {
+            return BitmapFrame(it)
         }
         if(extensionHint=="rip" || extensionOf(uri)=="rip") {
             val image=runCatching {ripBytes(uri,null)?.let {RipScriptDecoder.decode(it,targetPx,ripMode)}}.getOrNull() ?: return null
