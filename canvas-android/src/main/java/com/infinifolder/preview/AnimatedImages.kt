@@ -2,9 +2,14 @@ package com.infinifolder.preview
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.PixelFormat
 import android.graphics.ImageDecoder
 import android.graphics.Movie
+import android.graphics.drawable.Animatable
 import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
 import android.os.Build
 import io.github.gretchycat.infinistream.Provenance
 import java.nio.ByteBuffer
@@ -31,14 +36,17 @@ internal object AnimatedImages {
             }
             if(drawable is AnimatedImageDrawable){
                 drawable.repeatCount=AnimatedImageDrawable.REPEAT_INFINITE
-                // Decode the edit poster separately. The live drawable is first drawn by
-                // its attached ImageView on the UI thread, where Android can schedule it.
+                // Decode a still poster separately for editing and initial layout.
                 val bitmap=ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))){decoder,_,_->
                     decoder.setTargetSize(drawable.intrinsicWidth,drawable.intrinsicHeight)
                     decoder.allocator=ImageDecoder.ALLOCATOR_SOFTWARE;decoder.isMutableRequired=true
                 }
+                val displayedDrawable = if (ext == "gif" || ext == "webp")
+                    BitmapBackedAnimationDrawable(drawable, bitmap.width, bitmap.height)
+                else drawable
                 return BitmapFrame(bitmap,provenance=provenance).also{
-                    it.animationDrawable=drawable;it.animationDurationNanos=NativeAnimationTiming.durationNanos(bytes,ext)
+                    it.animationDrawable=displayedDrawable
+                    it.animationDurationNanos=NativeAnimationTiming.durationNanos(bytes,ext)
                 }
             }
             if(drawable is android.graphics.drawable.BitmapDrawable)return BitmapFrame(drawable.bitmap,provenance=provenance)
@@ -73,4 +81,63 @@ internal object AnimatedImages {
             return true
         }
     }
+}
+
+
+/** Render native GIF/WebP frames to a software bitmap before the viewer's hardware canvas displays them. */
+private class BitmapBackedAnimationDrawable(
+    private val source: Drawable,
+    private val width: Int,
+    private val height: Int
+) : Drawable(), Animatable, Drawable.Callback {
+    private val frameBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    private val frameCanvas = Canvas(frameBitmap)
+    private val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private var alpha = 255
+    private var colorFilter: ColorFilter? = null
+
+    init {
+        source.callback = this
+        source.setBounds(0, 0, width, height)
+    }
+
+    override fun draw(canvas: Canvas) {
+        if (bounds.isEmpty || width <= 0 || height <= 0) return
+        frameBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
+        source.draw(frameCanvas)
+        paint.alpha = alpha
+        paint.colorFilter = colorFilter
+        canvas.drawBitmap(frameBitmap, null, bounds, paint)
+    }
+
+    override fun start() {
+        (source as? Animatable)?.start()
+        invalidateSelf()
+    }
+
+    override fun stop() {
+        (source as? Animatable)?.stop()
+        invalidateSelf()
+    }
+
+    override fun isRunning(): Boolean = (source as? Animatable)?.isRunning == true
+
+    override fun invalidateDrawable(who: Drawable) = invalidateSelf()
+    override fun scheduleDrawable(who: Drawable, what: Runnable, `when`: Long) = scheduleSelf(what, `when`)
+    override fun unscheduleDrawable(who: Drawable, what: Runnable) = unscheduleSelf(what)
+
+    override fun setAlpha(alpha: Int) {
+        this.alpha = alpha.coerceIn(0, 255)
+        invalidateSelf()
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        this.colorFilter = colorFilter
+        invalidateSelf()
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+    override fun getIntrinsicWidth(): Int = width
+    override fun getIntrinsicHeight(): Int = height
 }
