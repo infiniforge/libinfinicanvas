@@ -17,6 +17,8 @@ import kotlin.math.roundToInt
 internal object OpenRasterAnimationDecoder {
     private const val MAX_LAYERS = 256
     private const val MAX_LAYER_PIXELS = 4_000_000L
+    private const val MAX_TOTAL_LAYER_PIXELS = 16_000_000L
+    private const val MAX_LAYER_OFFSET = 1_000_000
     private const val MAX_NESTING = 4
     private val nesting = ThreadLocal.withInitial { 0 }
 
@@ -62,11 +64,13 @@ internal object OpenRasterAnimationDecoder {
         val layerTarget = minOf(4096, maxOf(targetPixels, maxOf(document.width, document.height)))
         val prepared = ArrayList<Layer>(document.layers.size)
         var animated = false
+        var decodedLayerPixels = 0L
         var ownershipTransferred = false
         try {
             for (source in document.layers) {
                 if (!source.visible) continue
-                if (!safeSource(source.src)) return null
+                if (!safeSource(source.src) || source.x !in -MAX_LAYER_OFFSET..MAX_LAYER_OFFSET ||
+                    source.y !in -MAX_LAYER_OFFSET..MAX_LAYER_OFFSET) return null
                 val encoded = entries[source.src] ?: return null
                 val frame = CanvasStreams.decodeBytes(encoded, source.src, layerTarget, true) ?: return null
                 val animation = frame.animation ?: frame.colorCycling
@@ -78,10 +82,13 @@ internal object OpenRasterAnimationDecoder {
                 if (animation != null) {
                     width = animation.width
                     height = animation.height
-                    if (width <= 0 || height <= 0 || width.toLong() * height > MAX_LAYER_PIXELS) {
+                    val area = width.toLong() * height
+                    if (width <= 0 || height <= 0 || area > MAX_LAYER_PIXELS ||
+                        decodedLayerPixels + area > MAX_TOTAL_LAYER_PIXELS) {
                         frame.bitmap.recycle()
                         return null
                     }
+                    decodedLayerPixels += area
                     pixels = IntArray(width * height)
                     var passes = 0
                     do {
@@ -94,12 +101,26 @@ internal object OpenRasterAnimationDecoder {
                 } else if (childDrawable != null) {
                     width = frame.bitmap.width
                     height = frame.bitmap.height
+                    val area = width.toLong() * height
+                    if (width <= 0 || height <= 0 || area > MAX_LAYER_PIXELS ||
+                        decodedLayerPixels + area > MAX_TOTAL_LAYER_PIXELS) {
+                        frame.bitmap.recycle()
+                        return null
+                    }
+                    decodedLayerPixels += area
                     bitmap = null
                     pixels = null
                     animated = true
                 } else {
                     width = frame.bitmap.width
                     height = frame.bitmap.height
+                    val area = width.toLong() * height
+                    if (width <= 0 || height <= 0 || area > MAX_LAYER_PIXELS ||
+                        decodedLayerPixels + area > MAX_TOTAL_LAYER_PIXELS) {
+                        frame.bitmap.recycle()
+                        return null
+                    }
+                    decodedLayerPixels += area
                     bitmap = frame.bitmap.copy(Bitmap.Config.ARGB_8888, false)
                     pixels = null
                     if (bitmap == null) {

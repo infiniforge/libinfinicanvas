@@ -20,6 +20,7 @@ internal object OpenRasterIffCycle {
     private const val MAX_ENTRY_BYTES = 16 * 1024 * 1024
     private const val MAX_ENTRIES = 4096
     private const val MAX_PIXELS = 4_000_000
+    private const val MAX_LAYER_OFFSET = 1_000_000
 
     internal data class Decoded(val bitmap: Bitmap, val animation: BitmapAnimation)
     internal data class Attempt(val decoded: Decoded?, val diagnostic: String)
@@ -168,7 +169,9 @@ internal object OpenRasterIffCycle {
                 override fun endElement(uri: String?, localName: String, qName: String) {
                     if (localName == "layer" && current != null) {
                         val layer = current ?: return
-                        if (!layer.opacity.isFinite() || layer.opacity !in 0f..1f) invalid = true
+                        if (!layer.opacity.isFinite() || layer.opacity !in 0f..1f ||
+                            layer.x !in -MAX_LAYER_OFFSET..MAX_LAYER_OFFSET ||
+                            layer.y !in -MAX_LAYER_OFFSET..MAX_LAYER_OFFSET) invalid = true
                         layers += Layer(layer.src, layer.x, layer.y, layer.opacity, layer.visible, layer.composite)
                         current = null
                     }
