@@ -253,16 +253,21 @@ class ThumbnailDecoder(
         val pluginExtension=extensionHint?:extensionOf(uri)
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
-        // Extended ORA carries palette animation metadata in stack.xml. Let this richer
-        // decoder handle it before a generic image capability flattens the document.
+        // A visible IFF layer may carry native palette cycling. Decode it before a
+        // generic image capability flattens the OpenRaster document.
         if(ext=="ora" || mimeTypeHint in setOf("image/openraster", "application/openraster")) {
             val bytes=readBytesForCustomDecoder(uri,null)?:return null
+            val iffAttempt=OpenRasterIffCycle.decodeWithDiagnostics(bytes,targetPx)
+            val iff=iffAttempt.decoded
+            if(iff!=null)return BitmapFrame(iff.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
+                source=uri.toString(),transformations=listOf("image.decode.ora-iff-layer")))
+                .also{it.animation=iff.animation;it.decodeDiagnostics=iffAttempt.diagnostic}
             val animatedOra=OpenRasterAnimationDecoder.decode(bytes,targetPx)
             if(animatedOra!=null)return BitmapFrame(animatedOra.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
                 source=uri.toString(),transformations=listOf("image.decode.ora-layers")))
                 .also{it.animationDrawable=animatedOra.drawable;it.animationDurationNanos=animatedOra.durationNanos;it.decodeDiagnostics=animatedOra.diagnostics}
             return LayeredImageDecoder.decode(bytes,targetPx,ext)?.let{BitmapFrame(it,provenance=io.github.gretchycat.infinistream.Provenance(
-                source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics="result=static-fallback reason=no-supported-animated-layer"}}
+                source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics=iffAttempt.diagnostic}}
         }
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}

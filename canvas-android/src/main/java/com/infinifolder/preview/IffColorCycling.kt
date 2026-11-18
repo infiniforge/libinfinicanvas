@@ -22,8 +22,10 @@ object IffColorCycling {
         val rangeCount get()=ranges.size
         override val description get()="$rangeCount cycling range(s)"
         private var previousPalette:IntArray?=null
-        override fun render(elapsedNanos:Long,output:IntArray,force:Boolean):Boolean {
-            require(output.size>=width*height)
+        internal val sourceWidth get()=indexed.width
+        internal val sourceHeight get()=indexed.height
+
+        private fun paletteAt(elapsedNanos:Long):IntArray {
             val palette=indexed.palette.copyOf()
             for(range in ranges){
                 val length=range.last-range.first+1
@@ -52,11 +54,20 @@ object IffColorCycling {
             }
             if(indexed.ehb)for(i in 0 until 32)
                 palette[i+32]=0xff000000.toInt() or ((palette[i] and 0xfefefe) ushr 1)
+            return palette
+        }
+
+        internal fun renderScaled(elapsedNanos:Long,outWidth:Int,outHeight:Int,output:IntArray,force:Boolean=false):Boolean {
+            require(outWidth>0&&outHeight>0&&output.size>=outWidth*outHeight)
+            val palette=paletteAt(elapsedNanos)
             if(!force&&previousPalette?.contentEquals(palette)==true)return false
-            indexed.render(palette,width,height,output)
+            indexed.render(palette,outWidth,outHeight,output)
             previousPalette=palette
             return true
         }
+
+        override fun render(elapsedNanos:Long,output:IntArray,force:Boolean):Boolean =
+            renderScaled(elapsedNanos,width,height,output,force)
     }
 
     internal class Indexed(val width:Int,val height:Int,val palette:IntArray,val paletteSize:Int,

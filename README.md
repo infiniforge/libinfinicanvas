@@ -28,7 +28,7 @@ Run `gradle :canvas-android:testDebugUnitTest` and the relevant assemble task.
 
 Source dependencies are pinned in `dependencies.lock.json` and fetched inside this checkout. No sibling source directories are used.
 
-Original-code licensing is pending owner selection; see LICENSE.md. No original implementation is rewritten or relicensed by this move.
+Original code is licensed under MIT; third-party components retain their own terms. The extraction did not rewrite the original implementation.
 
 ## Current boundary
 
@@ -55,14 +55,15 @@ November 4, 2026; individual format variants and lifecycle checks remain pending
 
 ## OpenRaster animation layers
 
-The full viewer reads the bounded OpenRaster stack and decodes each referenced
-`data/` layer through Canvas's normal visual-media routes. Static and animated
-layers are composed in stack order with their offsets and opacity. Embedded IFF
-palette cycles and supported FLI/FLC, GIF, APNG, WebP and MNG layers keep their
-normal playback renderer inside the returned `Animatable` stack drawable; the
-host controls its start/stop lifecycle. Ordinary documents and unsupported
-animation layers retain the standard merged-image preview. This route does not
-use a proprietary palette-cycle XML extension or indexed-PNG overlay format.
+The full viewer reads the bounded OpenRaster stack and decodes referenced `data/`
+layers through Canvas's normal visual-media routes. Static and animated layers are
+composed in stack order with offsets and opacity. Embedded FLI/FLC, GIF, APNG,
+WebP and MNG layers keep their normal playback renderer inside a lifecycle-controlled
+stack drawable. A single cycling IFF layer uses its native CRNG, CCRT or DRNG ranges
+and is composited over the other visible ORA layers, preserving the confirmed
+Infinimedia artwork behavior. The host controls playback start/stop. Ordinary
+documents and unsupported animation layers retain the merged-image preview. DTD
+declarations and external entities are rejected.
 
 ## Image animation
 
@@ -272,6 +273,15 @@ The `animate=false` decodeBytes overload returns the exact initial frame without
 
 ## Authoring and compressed thumbnails
 
-ORA/KRA ZIP mimetype entries identify their image format instead of a generic archive. Thumbnail requests stream the first supported preview/merged PNG without materializing the project: 32 MiB encoded input, 128 MiB expanded scan, 4,096 entries and a 16 MiB preview limit. Bitmap decoding samples to the thumbnail size. Full ORA viewing decodes referenced `data/` layers through Canvas and animates supported embedded visual media, including IFF palette cycling. It composes flat `src-over` layers with visibility, opacity and offsets; unsupported blend modes or grouped stacks retain the standard merged-image still fallback. The parser bounds input to 32 MiB, expanded ZIP data to 128 MiB, per-entry payloads to 16 MiB and animated canvases to 4 megapixels.
+ORA/KRA ZIP mimetype entries identify their image format instead of a generic
+archive. Thumbnail requests stream the first supported preview/merged PNG without
+materializing the project: 32 MiB encoded input, 128 MiB expanded scan, 4,096
+entries and a 16 MiB preview limit. Bitmap decoding samples to the thumbnail size.
+Full ORA viewing decodes referenced `data/` layers through Canvas and animates
+supported embedded visual media, including IFF palette cycling. It composes flat
+`src-over` layers with visibility, opacity and offsets; unsupported blend modes or
+grouped stacks retain the standard merged-image still fallback. The parser bounds
+input to 32 MiB, expanded ZIP data to 128 MiB, per-entry payloads to 16 MiB and
+animated canvases to 4 megapixels.
 
 SVGZ identity reads only a bounded decompressed XML prefix and recognizes large SVG documents without requiring their complete expansion. SVG remains static. Explicit application/postscript and application/x-krita thumbnail MIME aliases keep content providers' MIME values on the image route. EPS support remains the existing EPSI, binary preview and ImageMagick raster subsets; this does not introduce a general PostScript interpreter.
