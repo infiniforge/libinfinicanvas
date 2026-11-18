@@ -253,14 +253,14 @@ class ThumbnailDecoder(
         val pluginExtension=extensionHint?:extensionOf(uri)
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
-        // Extended ORA carries palette animation metadata in stack.xml. Let this richer
-        // decoder handle it before a generic image capability flattens the document.
+        // A visible IFF layer may carry native palette cycling. Decode it before a
+        // generic image capability flattens the OpenRaster document.
         if(ext=="ora" || mimeTypeHint in setOf("image/openraster", "application/openraster")) {
             val bytes=readBytesForCustomDecoder(uri,null)?:return null
             val attempt=OpenRasterPaletteCycle.decodeWithDiagnostics(bytes,targetPx)
             val extended=attempt.decoded
             if(extended!=null)return BitmapFrame(extended.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
-                source=uri.toString(),transformations=listOf("image.decode.ora-palette-cycle")))
+                source=uri.toString(),transformations=listOf("image.decode.ora-iff-layer")))
                 .also{it.animation=extended.animation;it.decodeDiagnostics=attempt.diagnostic}
             return LayeredImageDecoder.decode(bytes,targetPx,ext)?.let{BitmapFrame(it,provenance=io.github.gretchycat.infinistream.Provenance(
                 source=uri.toString(),transformations=listOf("image.decode.ora"))).also{it.decodeDiagnostics=attempt.diagnostic}}

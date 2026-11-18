@@ -53,17 +53,15 @@ or scanline palettes report warnings and retain the still preview. Thumbnails
 remain static. The owner confirmed basic playback in the host image viewer on
 November 4, 2026; individual format variants and lifecycle checks remain pending.
 
-## Extended OpenRaster palette cycles
+## OpenRaster IFF layers
 
-`CanvasStreams.decodeBytes` and the full viewer decoder recognize the InfiniMedia
-OpenRaster palette-cycle extension directly from `stack.xml`. The indexed layer
-is rendered as an animated overlay over the other visible ORA layers, including
-when an authoring tool places it below an opaque base layer. The returned frame
-is mutable for host frame publication; the host still owns playback scheduling
-and bitmap lifecycle. Android SAX parser feature differences are handled without
-allowing external entity resolution, and DTD declarations are rejected. The
-Infinimedia runtime probe checks the shipped `main.ora` pixels, palette changes,
-cache playback/pause/resume and cleanup.
+`CanvasStreams.decodeBytes` and the full viewer decoder animate a visible IFF
+layer directly from its native CRNG, CCRT or DRNG ranges, composited over the
+other visible ORA layers. PNG layers provide static artwork beneath the animated
+IFF. The returned frame is mutable for host frame publication; the host
+owns playback scheduling and bitmap lifecycle. The bounded stack parser rejects
+DTD declarations and external entities. The Infinimedia runtime probe checks
+`main.ora` pixels, IFF palette changes, cache playback/pause/resume and cleanup.
 
 ## Image animation
 
@@ -273,6 +271,16 @@ The `animate=false` decodeBytes overload returns the exact initial frame without
 
 ## Authoring and compressed thumbnails
 
-ORA/KRA ZIP mimetype entries identify their image format instead of a generic archive. Thumbnail requests stream the first supported preview/merged PNG without materializing the project: 32 MiB encoded input, 128 MiB expanded scan, 4,096 entries and a 16 MiB preview limit. Bitmap decoding samples to the thumbnail size. Full ORA viewing continues to use the merged image for ordinary documents and also recognizes the InfiniMedia palette-cycle XML extension (`https://infinimedia.org/ns/openraster/palette-cycle/1`). It preserves indexed PNG samples, palette alpha, layer offsets and XML rotation ranges in a Canvas animation, without converting the document to IFF first. The animated ORA path currently accepts one visible, looping `rotate` layer in a flat `src-over` stack; unsupported blend modes or grouped stacks retain the standard merged-image still fallback. The parser bounds input to 32 MiB, expanded ZIP data to 128 MiB, PNG entries to 16 MiB and decoded image canvases to 4 megapixels.
+ORA/KRA ZIP mimetype entries identify their image format instead of a generic archive.
+Thumbnail requests stream the first supported preview/merged PNG without materializing
+the project: 32 MiB encoded input, 128 MiB expanded scan, 4,096 entries and a 16 MiB
+preview limit. Bitmap decoding samples to the thumbnail size. Full ORA viewing
+continues to use the merged image for ordinary documents. An ORA with one visible
+ILBM/PBM IFF layer uses that layer's native CRNG, CCRT or DRNG ranges and composites
+its animated frames over the other visible PNG layers. The PNG layers remain static;
+animation comes from the IFF data. This path accepts flat `src-over` layers;
+unsupported blend modes retain the standard merged-image still fallback. The parser
+bounds input to 32 MiB, expanded ZIP data to 128 MiB, individual ZIP entries to
+16 MiB and decoded image canvases to 4 megapixels.
 
 SVGZ identity reads only a bounded decompressed XML prefix and recognizes large SVG documents without requiring their complete expansion. SVG remains static. Explicit application/postscript and application/x-krita thumbnail MIME aliases keep content providers' MIME values on the image route. EPS support remains the existing EPSI, binary preview and ImageMagick raster subsets; this does not introduce a general PostScript interpreter.
