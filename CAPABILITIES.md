@@ -1,14 +1,14 @@
 # Runtime capabilities — canvas
 
-Updated 2026-11-04.
+Updated 2026-11-18.
 
 ## Linked dependencies
 
 Stream (`stream-core`); AndroidSVG, JxlCoder and OpenJPEG Android dependencies are declared by `canvas-android`.
 
 Dependencies must be packaged/linked, not assumed to be present. Standalone source
-builds resolve sibling repositories through includeBuild (or
-`-PinfiniLibrariesDir=/path/to/libraries`). Android modules need SDK 36, min API 26.
+builds resolve exact source revisions under `dependencies/` through includeBuild;
+an embedding source-composite build can supply its declared dependency root. Android modules need SDK 36, min API 26.
 A library dependency is allowed; an InfiniFolder application/UI dependency is not.
 
 ## Public discovery and execution
@@ -39,7 +39,8 @@ to JVM tests. Descriptive catalog exports do not prove runtime support.
 ## Standalone build and tests
 
 ```sh
-gradle :canvas-android:testDebugUnitTest :canvas-android:assembleDebug --offline
+python3 scripts/fetch-dependencies.py
+./gradlew :canvas-android:testDebugUnitTest :canvas-android:assembleDebug
 ```
 
 No browser process is required. Keep existing format regression suites; capability
@@ -56,3 +57,27 @@ its standalone Gradle test task, and also builds the main and combined standalon
 viewer APKs. The host `docs/runtime-capabilities.md` records exact commands, fresh
 counts, failures repaired during the gate and unverified device paths. This is
 separate from the historical extraction evidence in SOURCE_PROVENANCE.md.
+
+## Format writers
+
+`canvas.save.raster` registers actual `ImageWriter` ENCODE services. Query
+`ImageSaving.formats` for targets and preservation limits; source decode support
+does not imply writing. See [saving APIs](docs/saving.md). Existing PNG processor
+registration remains compatible. Host apps own publication and overwrite policy.
+
+## Extensible media and animation projects
+
+`canvas.animation-project` advertises `.icanim` /
+`application/x-infinicanvas-animation` for IDENTIFY, METADATA, DECODE and THUMBNAIL.
+Probes validate its ZIP mimetype through ImageSignatures and keep those executable
+operations available; decode validates the timeline and ORA frame content.
+Bounded metadata reads report width, height, frame count, duration and loop count
+without rendering pixels. Viewers sample frame composites on demand.
+
+ImageSaving's existing writer provider also advertises ICANIM. Its generic
+writeAnimation entry point creates single-layer ORA frames; writeAnimationProject
+preserves full frame documents. Extended ORA uses writeOpenRaster; old raster
+value types and writer calls keep their signatures/subsets.
+
+See [ORA](docs/openraster-container.md), [ICANIM](docs/animation-projects.md),
+[compatibility](docs/compatibility.md) and [validation](docs/validation.md).

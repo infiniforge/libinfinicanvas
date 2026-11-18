@@ -503,7 +503,7 @@ object LayeredImageDecoder {
         return true
     }
 
-    private fun decodeXcfRleTile(bytes: ByteArray, startPos: Int, numPixels: Int, bpp: Int, outInterleaved: ByteArray): Boolean {
+    internal fun decodeXcfRleTile(bytes: ByteArray, startPos: Int, numPixels: Int, bpp: Int, outInterleaved: ByteArray): Boolean {
         var pos = startPos
         for (c in 0 until bpp) {
             var px = 0
@@ -526,7 +526,7 @@ object LayeredImageDecoder {
     }
 
     /** XCF zlib compression stores each tile as an independent bounded pixel stream. */
-    private fun decodeXcfZlibTile(bytes: ByteArray, startPos: Int, output: ByteArray): Boolean {
+    internal fun decodeXcfZlibTile(bytes: ByteArray, startPos: Int, output: ByteArray): Boolean {
         if (startPos !in bytes.indices) return false
         return try {
             java.util.zip.InflaterInputStream(

@@ -24,6 +24,9 @@ enum class ImageOrientationChange { ROTATE_CLOCKWISE, ROTATE_COUNTERCLOCKWISE, F
 sealed interface ImageTransform {
     data class Orient(val change: ImageOrientationChange) : ImageTransform
     data class Crop(val bounds: ImageCropBounds) : ImageTransform
+    data class Scale(val width:Int,val height:Int,val filtered:Boolean=true):ImageTransform {
+        init { require(width>0 && height>0) }
+    }
     data class Resize(val width: Int, val height: Int) : ImageTransform {
         init { require(width > 0 && height > 0) { "Resize dimensions must be positive" } }
     }
@@ -33,7 +36,7 @@ object ImageTransforms {
     val descriptor = ProcessorDescriptor("canvas.android.transform",
         listOf(PortDescriptor("image", setOf(DataKind.IMAGE_FRAME), formats = setOf("android-bitmap"))),
         listOf(PortDescriptor("image", setOf(DataKind.IMAGE_FRAME), formats = setOf("android-bitmap"))),
-        options = setOf("operation", "left", "top", "right", "bottom", "width", "height"))
+        options = setOf("operation", "left", "top", "right", "bottom", "width", "height", "filtered"))
 
     /** Borrow input; caller closes or explicitly takes the resulting pixels. No-op results may alias input. */
     @JvmStatic @JvmOverloads @Throws(IOException::class)
@@ -50,6 +53,7 @@ object ImageTransforms {
         is ImageTransform.Orient -> mapOf("operation" to transform.change.name)
         is ImageTransform.Crop -> with(transform.bounds) { mapOf("operation" to "CROP", "left" to left.toString(),
             "top" to top.toString(), "right" to right.toString(), "bottom" to bottom.toString()) }
+        is ImageTransform.Scale -> mapOf("operation" to "SCALE", "width" to transform.width.toString(), "height" to transform.height.toString(), "filtered" to transform.filtered.toString())
         is ImageTransform.Resize -> mapOf("operation" to "RESIZE", "width" to transform.width.toString(), "height" to transform.height.toString())
     }
     internal fun parse(values: Map<String, String>): ImageTransform {
@@ -57,6 +61,7 @@ object ImageTransforms {
             val operation = values["operation"] ?: throw IOException("Missing image operation")
             val keys = when (operation) {
                 "CROP" -> setOf("operation", "left", "top", "right", "bottom")
+                "SCALE" -> setOf("operation","width","height","filtered")
                 "RESIZE" -> setOf("operation", "width", "height")
                 else -> setOf("operation")
             }
@@ -64,6 +69,7 @@ object ImageTransforms {
             return when (operation) {
                 "CROP" -> ImageTransform.Crop(ImageCropBounds(values.getValue("left").toFloat(), values.getValue("top").toFloat(),
                     values.getValue("right").toFloat(), values.getValue("bottom").toFloat()))
+                "SCALE" -> ImageTransform.Scale(values.getValue("width").toInt(),values.getValue("height").toInt(),values.getValue("filtered").toBooleanStrict())
                 "RESIZE" -> ImageTransform.Resize(values.getValue("width").toInt(), values.getValue("height").toInt())
                 else -> ImageTransform.Orient(ImageOrientationChange.valueOf(operation))
             }
@@ -101,6 +107,7 @@ class ImageTransformProcessor : StreamProcessor {
                 val crop = transform.bounds.pixels(bitmap.width, bitmap.height)
                 Bitmap.createBitmap(bitmap, crop.left, crop.top, crop.width, crop.height)
             }
+            is ImageTransform.Scale -> Bitmap.createScaledBitmap(bitmap,transform.width,transform.height,transform.filtered)
             is ImageTransform.Resize -> Bitmap.createScaledBitmap(bitmap, transform.width, transform.height, true)
         }
         try {

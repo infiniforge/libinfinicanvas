@@ -26,7 +26,9 @@ Implementation ownership and validation are recorded in SOURCE_PROVENANCE.md.
 Build using JDK 17+ and Gradle 9.7.1. Android adapters need SDK 36/min API 26.
 Run `gradle :canvas-android:testDebugUnitTest` and the relevant assemble task.
 
-Source dependencies are pinned in `dependencies.lock.json` and fetched inside this checkout. No sibling source directories are used.
+Source dependencies are pinned in `dependencies.lock.json` and fetched inside
+this checkout. No sibling source directories are required. On Termux, install
+`aapt2` and pass `-Pandroid.aapt2FromMavenOverride=$(command -v aapt2)` to Gradle.
 
 Original code is licensed under MIT; third-party components retain their own terms. The extraction did not rewrite the original implementation.
 
@@ -49,11 +51,13 @@ frames without retaining/reopening an input stream. HAM held-color decoding is
 shared with the still-image path, and EHB colors follow the cycled base palette.
 The host supplies a reusable ARGB buffer and owns scheduling/bitmap publication.
 Cycling is limited to four megapixels and 256 active ranges; unsupported ranges
-or scanline palettes report warnings and retain the still preview. Thumbnails
-remain static. The owner confirmed basic playback in the host image viewer on
+or scanline palettes report warnings and retain the still preview. IFF thumbnails
+remain static. Native-size still/palette authoring and source-preserving writes
+use the separate editor/PaletteDocument APIs; these playback limits do not define
+an editor resolution quota. The owner confirmed basic playback in the host image viewer on
 November 4, 2026; individual format variants and lifecycle checks remain pending.
 
-## OpenRaster animation layers
+## Legacy OpenRaster viewer layers
 
 The full viewer reads the bounded OpenRaster stack and decodes referenced `data/`
 layers through Canvas's normal visual-media routes. Static and animated layers are
@@ -75,8 +79,9 @@ Standard 8-bit FLI/FLC, APNG composition and PNG-based MNG (including stored PNG
 objects and SHOW/grouped frames) are decoded
 in Canvas. GIF/WebP use Android's native animation on API 28+, with a legacy GIF
 fallback on API 26–27. HEIF/AVIF only animate where the platform exposes an
-animated drawable. Custom animations retain bounded in-memory sources and decoded
-state, not an unbounded list of rendered full frames. `durationNanos` and bounded
+animated drawable. Ordinary custom playback retains bounded sources and decoded state. The explicit
+AnimationDocuments authoring API instead materializes all editable frames; its
+memory behavior is documented separately below. `durationNanos` and bounded
 catch-up status support the host's timeline/seeking; native GIF/WebP duration is
 container timing for a read-only progress display. `InteractiveBitmapAnimation`
 adds worker-owned named states and normalized pointer events for dynamic MNG.
@@ -135,7 +140,8 @@ Handset UI, live provider behavior and image editing acceptance remain separate.
 
 `ImageTransforms.apply(BitmapFrame, ImageTransform, cancellation)` executes the
 registered `canvas.android.transform` pull processor for orientation, source-
-pixel crop or filtered resize. The Android Matrix/Bitmap operations and crop
+pixel crop or resize. `ImageTransform.Scale(width, height, filtered)` adds
+explicit smoothing control; `Resize` retains its filtered behavior. The Android Matrix/Bitmap operations and crop
 truncation/clamping retain the original viewer's algorithms. UI display-coordinate
 mapping and edit policy remain in the host. Typed requests are translated into
 validated processor options; an edit uses an explicit registry step so a frame-
@@ -285,3 +291,39 @@ input to 32 MiB, expanded ZIP data to 128 MiB, per-entry payloads to 16 MiB and
 animated canvases to 4 megapixels.
 
 SVGZ identity reads only a bounded decompressed XML prefix and recognizes large SVG documents without requiring their complete expansion. SVG remains static. Explicit application/postscript and application/x-krita thumbnail MIME aliases keep content providers' MIME values on the image route. EPS support remains the existing EPSI, binary preview and ImageMagick raster subsets; this does not introduce a general PostScript interpreter.
+
+## Authoring documents and format-aware writing
+
+`PaletteDocument` retains indexed PNG/IFF source data for palette and IFF range
+editing. `LayerDocuments` exposes the supported flat ORA/PSD/XCF raster subsets;
+`OpenRasterDocuments` adds an extension-preserving wrapper for media layers,
+groups, unknown XML and encoded payloads. Opaque files can be retained without a
+renderer. Pixel edits use a PNG working representation while keeping non-PNG
+originals embedded. Existing ImageLayer/LayerDocument constructors and copy
+signatures are unchanged.
+
+`AnimationDocuments` imports complete APNG and indexed 8-bit FLI/FLC frames,
+provides a player and encodes APNG. `AnimationProjects` adds independent layered
+ORA frame documents, timings/loops and attachments. `.icanim` is a ZIP with an
+XML timeline and one ORA per frame; it is an InfiniForge extension. Its identity,
+metadata, thumbnails and on-demand playback are available through the existing
+library capability/decoder routes. This does not supply an editor UI.
+
+`PixelSelections` supplies raster masks, shapes, color/background selection,
+combination and transparent clearing. `ImageTransform.Scale` adds an explicit
+resampling choice; existing Resize calls keep their filtered behavior.
+
+`ImageSaving` discovers actual ENCODE writers for raster images, PSD/XCF/ORA
+layers, GIF/APNG frames and ICANIM. Dedicated writePalette, writeOpenRaster and
+writeAnimationProject paths retain their richer models. Legacy raster-document
+writers retain their subsets; they do not silently become extension-preserving
+editors. FLI/FLC encoding remains future work. Decoders never imply writers.
+
+Editor entry points request original dimensions without changing ordinary viewer
+or thumbnail sampling policies. They have no fixed editor side/layer/frame/input
+quota; integer/bitmap representation, actual memory, individual codec subsets
+and format fields still constrain processing. Work is in memory, not tiled.
+
+See [authoring](docs/authoring.md), [saving profiles](docs/saving.md),
+[extended ORA](docs/openraster-container.md), [ICANIM](docs/animation-projects.md),
+[compatibility](docs/compatibility.md) and [validation evidence](docs/validation.md).

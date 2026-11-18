@@ -156,7 +156,8 @@ object RetroImageDecoder {
             pos = dataStart + len + (len and 1)
         }
 
-        if (!isValidDimensions(width, height) || bodyOffset < 0 || nPlanes !in 1..32) return null
+        if (!isValidDimensions(width, height) || bodyOffset < 0 || nPlanes !in 1..32 ||
+            compression !in 0..1 || masking !in 0..2 || (formType=="PBM " && masking==1)) return null
 
         // Extra Half-Brite (EHB) mode: 6 planes where colors 32..63 are half-brightness copies of 0..31
         if (nPlanes == 6 && (camgMode and 0x80L) != 0L) {
@@ -193,7 +194,7 @@ object RetroImageDecoder {
                     val idx = raw.getOrElse(y * rowBytes + x) { 0 }.toInt() and 0xFF
                     captured?.set(y*width+x,idx.toByte())
                     opacity?.set(y*width+x,if(idx==transparentColor)0 else 1)
-                    pixels[y * width + x] = palette[idx]
+                    pixels[y * width + x] = if(masking==2 && idx==transparentColor) palette[idx] and 0xffffff else palette[idx]
                 }
             }
             if(captured!=null)finishCapture(if(compression==1)validIlbmBody(bytes,bodyOffset,bodyLen,rowBytes*height)else bodyLen>=rowBytes*height)
@@ -243,7 +244,12 @@ object RetroImageDecoder {
                     }
                     else -> palette[value and 0xFF]
                 }
-                pixels[y * width + x] = color
+                val transparent=when(masking) {
+                    2 -> value==transparentColor
+                    1 -> ((bodyBytes[scanlineBase+nPlanes*planeRowBytes+byteInRow].toInt() ushr bitShift) and 1)==0
+                    else -> false
+                }
+                pixels[y * width + x] = if(transparent) color and 0xffffff else color
             }
         }
 

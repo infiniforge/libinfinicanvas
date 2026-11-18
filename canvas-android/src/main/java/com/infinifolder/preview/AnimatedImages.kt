@@ -16,7 +16,7 @@ import java.nio.ByteBuffer
 
 /** Shared full-viewer animation entry point. Icons continue to request a still frame. */
 internal object AnimatedImages {
-    fun decode(bytes:ByteArray,targetPixels:Int,source:String):BitmapFrame? {
+    fun decode(bytes:ByteArray,targetPixels:Int,source:String,originalDimensions:Boolean=false):BitmapFrame? {
         val provenance=Provenance(source=source,transformations=listOf("image.decode.animation"))
         FlicDecoder.decode(bytes,targetPixels)?.let {image->
             return BitmapFrame(image.bitmap,provenance=provenance,warnings=image.warnings).also{it.animation=image.animation}
@@ -28,9 +28,9 @@ internal object AnimatedImages {
         if(ext !in setOf("gif","webp","avif","heif"))return null
         if(Build.VERSION.SDK_INT>=28){
             val drawable=ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes))){decoder,info,_->
-                require(info.size.width.toLong()*info.size.height<=100_000_000){"Animated image exceeds source pixel limit"}
+                require(originalDimensions || info.size.width.toLong()*info.size.height<=100_000_000){"Animated image exceeds source pixel limit"}
                 val scale=minOf(1.0,targetPixels.toDouble()/maxOf(info.size.width,info.size.height),
-                    kotlin.math.sqrt(4.0*1024*1024/(info.size.width.toDouble()*info.size.height)))
+                    if(originalDimensions) 1.0 else kotlin.math.sqrt(4.0*1024*1024/(info.size.width.toDouble()*info.size.height)))
                 decoder.setTargetSize(maxOf(1,(info.size.width*scale).toInt()),maxOf(1,(info.size.height*scale).toInt()))
                 decoder.allocator=ImageDecoder.ALLOCATOR_SOFTWARE
             }
@@ -53,7 +53,7 @@ internal object AnimatedImages {
         }else if(ext=="gif"){
             @Suppress("DEPRECATION")
             val movie=Movie.decodeByteArray(bytes,0,bytes.size)?:return null
-            require(movie.width()>0 && movie.height()>0 && movie.width().toLong()*movie.height()<=4*1024*1024){"GIF exceeds pixel limit"}
+            require(movie.width()>0 && movie.height()>0 && (originalDimensions || movie.width().toLong()*movie.height()<=4*1024*1024)){"GIF exceeds pixel limit"}
             val scale=minOf(1.0,targetPixels.toDouble()/maxOf(movie.width(),movie.height()))
             val bitmap=Bitmap.createBitmap(maxOf(1,(movie.width()*scale).toInt()),maxOf(1,(movie.height()*scale).toInt()),Bitmap.Config.ARGB_8888)
             val renderer=LegacyGif(movie,bitmap.width,bitmap.height)

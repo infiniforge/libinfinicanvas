@@ -41,7 +41,8 @@ class ThumbnailDecoder(
     private val resolver: ContentResolver?,
     private val streamOpener: ((Uri) -> InputStream?)? = null
 ) {
-    private class OversizedImage : Exception()
+    private var originalDimensions=false
+    private class OversizedImage : Exception("Image exceeds decoder dimension or pixel representation limits")
 
     private fun openStream(uri: Uri, cachedBytes: ByteArray? = null): InputStream? =
         if (cachedBytes != null) ByteArrayInputStream(cachedBytes)
@@ -132,7 +133,7 @@ class ThumbnailDecoder(
                 val n = input.read(buf)
                 if (n < 0) break
                 total += n
-                if (total > MAX_STREAM_BYTES) return null
+                if (!originalDimensions && total > MAX_STREAM_BYTES) return null
                 out.write(buf, 0, n)
             }
             out.toByteArray().takeIf { it.isNotEmpty() }
@@ -164,6 +165,7 @@ class ThumbnailDecoder(
 
     internal fun decodeLegacyCustomFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?): Bitmap? {
         return when (ext) {
+            "icanim" -> readBytesForCustomDecoder(uri,cachedBytes)?.let { AnimationProjectHandler.frame(it,targetPx)?.takeBitmap() }
             "fli", "flc", "flic" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{FlicDecoder.decode(it,targetPx,false)?.bitmap}
             "mng" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{PngAnimationDecoder.decode(it,targetPx)?.bitmap}
             "rip" -> ripBytes(uri,cachedBytes)?.let {RipScriptDecoder.decode(it,targetPx)?.bitmap}
@@ -237,9 +239,18 @@ class ThumbnailDecoder(
         }
     } catch (_: Exception) {
         null
-    } catch (_: OutOfMemoryError) {
-        null
+    } catch (error: OutOfMemoryError) {
+        if(originalDimensions) throw error else null
     }
+
+    /** Native raster dimensions for authoring. Independent decoder per call; viewer defaults stay unchanged.
+     * Memory/storage failures remain caller-visible; some legacy codecs have their own documented subsets. */
+    @JvmOverloads fun decodeEditorFrame(uri:Uri,extensionHint:String?=null,mimeTypeHint:String?=null):BitmapFrame? =
+        ThumbnailDecoder(resolver,streamOpener).apply { originalDimensions=true }
+            .decodeViewerFrame(uri,Int.MAX_VALUE,extensionHint,RipScriptDecoder.Mode.EGA,mimeTypeHint)
+    @JvmOverloads fun decodeEditorImage(uri:Uri,extensionHint:String?=null,mimeTypeHint:String?=null):Bitmap? =
+        ThumbnailDecoder(resolver,streamOpener).apply { originalDimensions=true }
+            .decodeImage(uri,Int.MAX_VALUE,extensionHint,mimeTypeHint)
 
     /** Full viewer decode including its original bounds/sample fallback; host retains bitmap ownership. */
     fun decodeViewerFrame(uri: Uri, targetPx: Int): BitmapFrame? = decodeViewerFrame(uri,targetPx,null)
@@ -253,6 +264,7 @@ class ThumbnailDecoder(
         val pluginExtension=extensionHint?:extensionOf(uri)
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
+        if(ext=="icanim" || mimeTypeHint==AnimationProjects.MIME_TYPE) return readBytesForCustomDecoder(uri,null)?.let { AnimationProjectHandler.frame(it,targetPx) }
         // A visible IFF layer may carry native palette cycling. Decode it before a
         // generic image capability flattens the OpenRaster document.
         if(ext=="ora" || mimeTypeHint in setOf("image/openraster", "application/openraster")) {
@@ -271,7 +283,7 @@ class ThumbnailDecoder(
         }
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}
-            val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString())}catch(error:Exception){
+            val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString(),originalDimensions)}catch(error:Exception){
                 if(error is java.io.InterruptedIOException)throw error
                 val still=decode(uri,targetPx,ext,bytes)
                 if(still==null)throw error
@@ -332,7 +344,7 @@ class ThumbnailDecoder(
     internal fun decodeSvgBytes(bytes: ByteArray, targetPx: Int): Bitmap? =
         decodeSvg(Uri.parse("infinistream://artwork/image.svg"), targetPx, bytes, nativeDimensions = true)
 
-    private fun decodeSvg(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null, nativeDimensions: Boolean = false): Bitmap? {
+    private fun decodeSvg(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null, nativeDimensions: Boolean = originalDimensions): Bitmap? {
         return try {
             openStream(uri, cachedBytes)?.use { rawStream ->
                 val bis = BufferedInputStream(rawStream)
@@ -351,13 +363,13 @@ class ThumbnailDecoder(
                     nativeDimensions && rawDocWidth > 0f -> rawDocWidth
                     rawViewBox != null && rawViewBox.width() > 0f -> rawViewBox.width()
                     rawDocWidth > 0f -> rawDocWidth
-                    else -> targetPx.toFloat()
+                    else -> if(originalDimensions) 300f else targetPx.toFloat()
                 }
                 val naturalHeight = when {
                     nativeDimensions && rawDocHeight > 0f -> rawDocHeight
                     rawViewBox != null && rawViewBox.height() > 0f -> rawViewBox.height()
                     rawDocHeight > 0f -> rawDocHeight
-                    else -> targetPx.toFloat()
+                    else -> if(originalDimensions) 150f else targetPx.toFloat()
                 }
 
                 if (rawViewBox == null) {
@@ -396,8 +408,8 @@ class ThumbnailDecoder(
             }
             JxlCoder.decodeSampled(
                 byteArray = bytes,
-                width = targetPx,
-                height = targetPx,
+                width = if(originalDimensions && size!=null) minOf(targetPx,size.width) else targetPx,
+                height = if(originalDimensions && size!=null) minOf(targetPx,size.height) else targetPx,
                 preferredColorConfig = PreferredColorConfig.RGBA_8888,
                 scaleMode = ScaleMode.FIT,
                 jxlResizeFilter = JxlResizeFilter.BILINEAR
@@ -417,8 +429,7 @@ class ThumbnailDecoder(
         }
     }
 
-    private fun withinLimits(width: Int, height: Int) = width in 1..MAX_SIDE && height in 1..MAX_SIDE &&
-        width.toLong() * height.toLong() <= MAX_PIXELS
+    private fun withinLimits(width: Int, height: Int) = if(originalDimensions) width>0 && height>0 && width.toLong()*height<=Int.MAX_VALUE/4 else width in 1..MAX_SIDE && height in 1..MAX_SIDE && width.toLong()*height<=MAX_PIXELS
 
     @RequiresApi(28)
     private fun decodeWithImageDecoder(uri: Uri, targetPx: Int): Bitmap {

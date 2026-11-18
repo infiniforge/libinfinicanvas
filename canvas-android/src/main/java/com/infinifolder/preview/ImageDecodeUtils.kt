@@ -8,8 +8,8 @@ import kotlin.math.roundToInt
  * Shared safety limits and bitmap construction helpers for pure-Kotlin image decoders.
  */
 internal object ImageDecodeUtils {
-    const val MAX_DIMENSION = 40_000
-    const val MAX_PIXELS = 160_000_000L
+    const val MAX_DIMENSION = Int.MAX_VALUE
+    const val MAX_PIXELS = Int.MAX_VALUE / 4L
 
     data class DecodedPixels(val width: Int, val height: Int, val pixels: IntArray)
 

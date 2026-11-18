@@ -22,12 +22,13 @@ internal object OpenRasterArchive {
         val y: Int,
         val opacity: Float,
         val visible: Boolean,
-        val composite: String
+        val composite: String,
+        val name: String = "Layer"
     )
     internal data class Document(val width: Int, val height: Int, val layers: List<Layer>)
 
-    internal fun readEntries(bytes: ByteArray, retainMedia: Boolean = false): Map<String, ByteArray>? {
-        if (bytes.size > MAX_INPUT_BYTES) return null
+    internal fun readEntries(bytes: ByteArray, retainMedia: Boolean = false, unrestricted:Boolean=false): Map<String, ByteArray>? {
+        if (!unrestricted && bytes.size > MAX_INPUT_BYTES) return null
         val found = linkedMapOf<String, ByteArray>()
         var expanded = 0L
         return try {
@@ -37,7 +38,7 @@ internal object OpenRasterArchive {
                 while (true) {
                     if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException()
                     val entry = zip.nextEntry ?: break
-                    if (++count > MAX_ENTRIES) return null
+                    if (++count > MAX_ENTRIES && !unrestricted) return null
                     val name = entry.name.replace('\\', '/')
                     if (name.startsWith('/') || name.split('/').any { it == ".." }) return null
                     val retain = name == "stack.xml" || name == "mergedimage.png" ||
@@ -50,7 +51,7 @@ internal object OpenRasterArchive {
                         if (n == 0) throw IOException("OpenRaster ZIP made no progress")
                         expanded += n
                         itemBytes += n
-                        if (expanded > MAX_EXPANDED_BYTES || itemBytes > MAX_ENTRY_BYTES) return null
+                        if (!unrestricted && (expanded > MAX_EXPANDED_BYTES || itemBytes > MAX_ENTRY_BYTES)) return null
                         out?.write(buffer, 0, n)
                     }
                     if (out != null) found[name] = out.toByteArray()
@@ -65,8 +66,8 @@ internal object OpenRasterArchive {
         }
     }
 
-    internal fun parseStack(bytes: ByteArray): Document? {
-        if (bytes.size > 1024 * 1024) return null
+    internal fun parseStack(bytes: ByteArray, unrestricted:Boolean=false): Document? {
+        if (!unrestricted && bytes.size > 1024 * 1024) return null
         val xml = bytes.toString(Charsets.UTF_8)
         if (Regex("<!\\s*DOCTYPE", RegexOption.IGNORE_CASE).containsMatchIn(xml)) return null
         return try {
@@ -107,7 +108,8 @@ internal object OpenRasterArchive {
                                 y = attributes.getValue("y")?.toIntOrNull() ?: 0,
                                 opacity = attributes.getValue("opacity")?.toFloatOrNull() ?: 1f,
                                 visible = attributes.getValue("visibility") != "hidden",
-                                composite = attributes.getValue("composite-op") ?: "svg:src-over"
+                                composite = attributes.getValue("composite-op") ?: "svg:src-over",
+                                name = attributes.getValue("name") ?: "Layer"
                             )
                         }
                     }
@@ -117,14 +119,14 @@ internal object OpenRasterArchive {
                     if (element(localName, qName) == "layer" && current != null) {
                         val layer = current ?: return
                         if (!layer.opacity.isFinite() || layer.opacity !in 0f..1f) invalid = true
-                        layers += Layer(layer.src, layer.x, layer.y, layer.opacity, layer.visible, layer.composite)
+                        layers += Layer(layer.src, layer.x, layer.y, layer.opacity, layer.visible, layer.composite, layer.name)
                         current = null
                     }
                 }
             }
             reader.parse(org.xml.sax.InputSource(ByteArrayInputStream(bytes)))
             if (invalid || width <= 0 || height <= 0 ||
-                width.toLong() * height > MAX_DOCUMENT_PIXELS || layers.isEmpty()) null
+                (!unrestricted && width.toLong() * height > MAX_DOCUMENT_PIXELS) || layers.isEmpty()) null
             else Document(width, height, layers)
         } catch (cancel: java.io.InterruptedIOException) {
             throw cancel
@@ -139,6 +141,7 @@ internal object OpenRasterArchive {
         val y: Int,
         val opacity: Float,
         val visible: Boolean,
-        val composite: String
+        val composite: String,
+        val name: String = "Layer"
     )
 }

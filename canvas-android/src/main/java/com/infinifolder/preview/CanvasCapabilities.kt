@@ -85,7 +85,7 @@ object CanvasCapabilities {
 /** Existing bounded decoder pipeline; extensions belong here rather than in the UI. */
 class BuiltinCanvasCapabilityProvider : CapabilityProvider {
     override val library="canvas"
-    override fun handlers():List<CapabilityHandler> = listOf(BuiltinImageHandler(),
+    override fun handlers():List<CapabilityHandler> = listOf(BuiltinImageHandler(),BuiltinImageWriter(),AnimationProjectHandler(),
         ByteImageHandler("netpbm",setOf("pbm","pgm","ppm","pnm","pam","pfm"),listOf("5031","5032","5033","5034","5035","5036","5037","5046","5066")) { b,s,_ ->NetpbmDecoder.decode(b,s) },
         ByteImageHandler("lossless",setOf("qoi","ff"),listOf("716f6966","6661726266656c64")) {b,s,_->SimpleLosslessImageDecoder.decode(b,s)},
         ByteImageHandler("tga",setOf("tga","icb","vda","vst")) {b,s,_->TgaDecoder.decode(b.inputStream(),s)},

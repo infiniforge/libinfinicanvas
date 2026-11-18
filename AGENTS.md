@@ -27,3 +27,9 @@ Owns image codec and decode APIs and image data adapters; host applications own 
 - `CAPABILITIES.md` — runtime capability registration and compatibility contract.
 - `docs/svg-palette-cycling.md` — public API and architecture documentation; read before changing interfaces or behavior.
 - `SOURCE_PROVENANCE.md` — source provenance, licensing, and attribution.
+- `docs/authoring.md` — indexed palettes, raster layers, animation documents and selections.
+- `docs/saving.md` — writer discovery, format losses, output and input ownership.
+- `docs/openraster-container.md` — extended ORA media and preservation contract.
+- `docs/animation-projects.md` — ICANIM version 1 ZIP/XML/ORA format and discovery.
+- `docs/compatibility.md` — retained signatures, additive models and resource policies.
+- `docs/validation.md` — recorded native/JVM evidence and outstanding acceptance.

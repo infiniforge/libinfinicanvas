@@ -59,3 +59,19 @@ revision (SHA-256
 Stream processors. Display-matrix coordinate mapping, preview filters, controls
 and save/provider policy remain host-owned. Typed requests, encoded-source
 ownership and transfer/cancellation wrappers are new; no backend is rewritten.
+
+## November 18, 2026 authoring and container additions
+
+PaletteDocument, LayerDocuments, PixelSelections/PixelGeometry, AnimationDocuments,
+OpenRasterPackage/OpenRasterDocuments/OpenRasterPlayback, AnimationProjects and
+its capability handler, ImageSaving, GifImageWriter and LayerImageWriters are
+original project implementations. Existing indexed IFF/PNG, FLIC delta and APNG
+composition code is reused; Android supplies bitmap compression and rendering.
+No application source dependency or copied third-party codec was introduced.
+
+Wire-format facts are attributed in the authoring/saving/animation docs to the
+published PNG/APNG, Autodesk FLIC, Adobe PSD, GIMP XCF, OpenRaster, IFF, QOI and GIF
+specifications. GIF89a's Graphics Interchange Format/GIF service mark belongs to
+CompuServe Incorporated. ICANIM's ZIP/XML timeline containing ORA frame documents
+is an InfiniForge extension. Original code remains under this repository's MIT
+license; existing codec AARs retain their original notices and review requirements.

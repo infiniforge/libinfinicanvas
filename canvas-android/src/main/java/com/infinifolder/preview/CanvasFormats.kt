@@ -8,7 +8,7 @@ object CanvasFormats {
         // GIF, WebP, BMP, WBMP, ICO/CUR
         "gif", "webp", "bmp", "dib", "wbmp", "ico", "cur",
         // Indexed Autodesk Animator and PNG-based MNG animation
-        "fli", "flc", "flic", "mng",
+        "fli", "flc", "flic", "mng", "icanim",
         // HEIF/HEIC and AVIF, including image sequences
         "heic", "heif", "heics", "heifs", "hif", "avif", "avifs",
         // DNG and camera RAW formats

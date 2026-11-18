@@ -93,6 +93,7 @@ object CanvasStreams {
         val hint=if(input.content.mimeType=="image/x-rip" || input.name?.endsWith(".rip",true)==true)"rip"
             else if(input.content.mimeType in setOf("image/ilbm","image/x-ilbm","image/x-iff") ||
                 input.name?.substringAfterLast('.')?.lowercase() in setOf("iff","ilbm","lbm"))"iff"
+            else if(input.content.mimeType==AnimationProjects.MIME_TYPE) "icanim"
             else if(input.content.mimeType in FlicDecoder.mimeTypes)"fli"
             else if(input.content.mimeType in setOf("image/png","image/apng"))"png"
             else if(input.content.mimeType in setOf("video/x-mng","image/x-mng","image/mng","video/mng","application/x-mng"))"mng"

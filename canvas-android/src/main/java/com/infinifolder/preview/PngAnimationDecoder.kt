@@ -13,7 +13,7 @@ import java.util.zip.CRC32
  * https://www.w3.org/TR/png-3/ ; https://www.libpng.org/pub/mng/spec/ */
 internal object PngAnimationDecoder {
     private const val MAX_PIXELS=4*1024*1024
-    private const val MAX_FRAMES=10000
+    private const val MAX_FRAMES=Int.MAX_VALUE
     private val pngSignature=byteArrayOf(137.toByte(),80,78,71,13,10,26,10)
     private val mngSignature=byteArrayOf(138.toByte(),77,78,71,13,10,26,10)
     data class Decoded(val bitmap:Bitmap,val animation:BitmapAnimation?,val warnings:List<String>)
@@ -51,6 +51,27 @@ internal object PngAnimationDecoder {
         return Decoded(bitmap,player,sequence.warnings)
     }
 
+    /** Reuses the APNG compositor, capturing complete displayed frames with bounded memory. */
+    fun authoring(bytes:ByteArray,targetPixels:Int):AnimationDocument? {
+        if(bytes.size<8 || !bytes.copyOfRange(0,8).contentEquals(pngSignature) || !hasAnimationControl(bytes)) return null
+        val sequence=readApng(readChunks(bytes,"IEND"),1_000_000L)
+        requireFormat(sequence.plays<=Int.MAX_VALUE,"APNG loop count exceeds authoring limit")
+        val scale=minOf(1.0,targetPixels.toDouble()/maxOf(sequence.w,sequence.h))
+        val w=maxOf(1,(sequence.w*scale).toInt()); val h=maxOf(1,(sequence.h*scale).toInt())
+        requireFormat(sequence.frames.all { it.delay in 1_000_000L..65_535_000_000_000L },"APNG frame delay exceeds editing limits")
+        val renderer=Animation(sequence,w,h); val pixels=IntArray(w*h)
+        val result=mutableListOf<AnimationFrame>(); var elapsed=0L
+        try {
+            for(frame in sequence.frames) {
+                do { renderer.render(elapsed,pixels,true) } while(renderer.needsMoreRendering)
+                result+=AnimationFrame(Bitmap.createBitmap(pixels,w,h,Bitmap.Config.ARGB_8888),
+                    ((frame.delay+500_000L)/1_000_000L).toInt().coerceIn(1,65535000))
+                elapsed+=frame.delay
+            }
+            return AnimationDocument(w,h,result,sequence.plays.toInt())
+        } catch(error:Throwable) { result.forEach { it.bitmap.recycle() }; throw error }
+    }
+
     private fun hasAnimationControl(bytes:ByteArray):Boolean {
         var at=8
         while(bytes.size-at>=12){
@@ -73,7 +94,6 @@ internal object PngAnimationDecoder {
             val length=size.toInt();val tag=String(bytes,at+4,4,Charsets.US_ASCII)
             val crc=CRC32().apply{update(bytes,at+4,length+4)}.value
             requireFormat(crc==u32(bytes,at+8+length),"Invalid $tag checksum")
-            requireFormat(result.size<100000,"Animation has too many chunks")
             result+=Chunk(tag,bytes.copyOfRange(at+8,at+8+length))
             at+=12+length
             if(tag==endTag){ended=true;break}
@@ -82,7 +102,7 @@ internal object PngAnimationDecoder {
         return result
     }
 
-    private fun readApng(chunks:List<Chunk>):Sequence {
+    private fun readApng(chunks:List<Chunk>,minimumDelay:Long=10_000_000L):Sequence {
         val header=chunks.firstOrNull()?.takeIf{it.type=="IHDR" && it.data.size==13}?.data
             ?:throw IOException("Missing PNG header")
         val w=dimension(header,0);val h=dimension(header,4);checkSize(w,h)
@@ -102,7 +122,7 @@ internal object PngAnimationDecoder {
             requireFormat(disposal<=2 && blend<=1,"Invalid APNG disposal/blend")
             val ihdr=header.copyOf();put32(ihdr,0,fw);put32(ihdr,4,fh)
             val numerator=u16(f,20);val denominator=u16(f,22).let{if(it==0)100 else it}
-            val delay=maxOf(10_000_000L,numerator*1_000_000_000L/denominator)
+            val delay=maxOf(minimumDelay,numerator*1_000_000_000L/denominator)
             frames+=Frame(listOf(Chunk("IHDR",ihdr))+shared+data+Chunk("IEND",byteArrayOf()),fw,fh,x,y,delay,
                 if(frames.isEmpty() && disposal==2)1 else disposal,blend==1)
             requireFormat(frames.size<=MAX_FRAMES,"APNG frame limit exceeded")
@@ -524,7 +544,7 @@ internal object PngAnimationDecoder {
         DataOutputStream(out).apply{writeInt(chunk.data.size);write(tag);write(chunk.data)
             writeInt(CRC32().apply{update(tag);update(chunk.data)}.value.toInt())}
     }
-    private fun checkSize(w:Int,h:Int)=requireFormat(w>0 && h>0 && w.toLong()*h<=MAX_PIXELS,"Animation exceeds 4 megapixel limit")
+    private fun checkSize(w:Int,h:Int)=PixelGeometry.validate(w,h)
     private fun dimension(b:ByteArray,at:Int,zero:Boolean=false):Int {
         val n=u32(b,at);requireFormat(n in (if(zero)0L else 1L)..Int.MAX_VALUE.toLong(),"Invalid animation dimension");return n.toInt()
     }

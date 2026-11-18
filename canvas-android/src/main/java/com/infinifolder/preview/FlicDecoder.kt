@@ -21,6 +21,9 @@ object FlicDecoder {
     fun recognizes(bytes:ByteArray)=bytes.size>=128 && u16(bytes,4) in setOf(0xaf11,0xaf12)
 
     fun decode(bytes:ByteArray,targetPixels:Int,animate:Boolean=true):Decoded? {
+        return decodeInternal(bytes,targetPixels,animate,false)
+    }
+    private fun decodeInternal(bytes:ByteArray,targetPixels:Int,animate:Boolean,editing:Boolean):Decoded? {
         if(!recognizes(bytes))return null
         require(targetPixels>0)
         val declaredSize=u32(bytes,0)
@@ -28,21 +31,22 @@ object FlicDecoder {
         val size=if(declaredSize==0L)bytes.size.toLong()else declaredSize
         requireFormat(size in 128..bytes.size.toLong(),"Truncated FLIC file")
         var count=u16(bytes,6);var w=u16(bytes,8);var h=u16(bytes,10)
-        requireFormat(count<=MAX_FRAMES,"FLIC frame count exceeds limits")
+        requireFormat((editing || count<=MAX_FRAMES),"FLIC frame count exceeds limits")
         requireFormat(u16(bytes,12) in setOf(0,8),"Only indexed 8-bit FLI/FLC is supported")
         if(recovered){
-            val recoveredFrames=scanFrames(bytes,size.toInt())
+            val recoveredFrames=scanFrames(bytes,size.toInt(),editing)
             requireFormat(recoveredFrames.isNotEmpty(),"Incomplete FLIC header and no complete frames")
             if(w==0 || h==0){
-                val geometry=recoverGeometry(bytes,recoveredFrames.first())
+                val geometry=recoverGeometry(bytes,recoveredFrames.first(),editing)
                     ?:throw IOException("FLIC dimensions are missing and cannot be recovered unambiguously")
                 requireFormat((w==0 || w==geometry.first) && (h==0 || h==geometry.second),"Conflicting FLIC geometry")
                 w=geometry.first;h=geometry.second
             }
             if(count==0)count=recoveredFrames.size
-            requireFormat(count in 1..MAX_FRAMES && w.toLong()*h*count<=64L*1024*1024,"FLIC recovery work exceeds limits")
+            requireFormat(count>=1 && (editing || count<=MAX_FRAMES && w.toLong()*h*count<=64L*1024*1024),"FLIC recovery work exceeds limits")
         }
-        requireFormat(count in 1..MAX_FRAMES && w>0 && h>0 && w.toLong()*h<=MAX_PIXELS,"FLIC dimensions/frame count exceed limits")
+        requireFormat(count>=1 && (editing || count<=MAX_FRAMES) && w>0 && h>0 && (editing || w.toLong()*h<=MAX_PIXELS),"FLIC dimensions/frame count exceed limits")
+        if(editing) PixelGeometry.validate(w,h)
         val fli=u16(bytes,4)==0xaf11
         val speed=if(fli)u16(bytes,16).toLong()*1_000_000_000/70 else u32(bytes,16)*1_000_000
         // Zero speed has no useful playback clock; use the historical 70 Hz tick.
@@ -85,9 +89,28 @@ object FlicDecoder {
         return Decoded(bitmap,animation,warnings.toList())
     }
 
+    /** Complete displayed frames for editing, using the existing indexed delta decoder. */
+    @JvmStatic @JvmOverloads fun authoring(bytes:ByteArray,targetPixels:Int=2048):AnimationDocument? {
+        val decoded=decodeInternal(bytes,targetPixels,true,true) ?: return null
+        val renderer=decoded.animation as Animation
+        val frames=mutableListOf<AnimationFrame>();val output=IntArray(renderer.width*renderer.height)
+        var elapsed=0L
+        try {
+            for(frame in renderer.frames) {
+                interrupted()
+                do { renderer.render(elapsed,output,true) } while(renderer.needsMoreRendering)
+                frames+=AnimationFrame(Bitmap.createBitmap(output,renderer.width,renderer.height,Bitmap.Config.ARGB_8888),
+                    ((frame.delay+500_000)/1_000_000).coerceIn(1,65535000).toInt())
+                elapsed=Math.addExact(elapsed,frame.delay)
+            }
+            return AnimationDocument(renderer.width,renderer.height,frames,0)
+        } catch(error:Throwable) { frames.forEach { it.bitmap.recycle() };throw error }
+        finally { decoded.bitmap.recycle() }
+    }
+
     /** Recovery never guesses an aspect ratio. Legacy BRUN packet counts must describe
      * a complete set of equally wide rows; modern zero packet-count streams cannot qualify. */
-    private fun recoverGeometry(bytes:ByteArray,frame:Frame):Pair<Int,Int>? {
+    private fun recoverGeometry(bytes:ByteArray,frame:Frame,editing:Boolean):Pair<Int,Int>? {
         var at=frame.offset+16
         repeat(u16(bytes,frame.offset+6)){
             requireFormat(frame.end-at>=6,"Truncated recovery subchunk")
@@ -108,7 +131,8 @@ object FlicDecoder {
                         if(columns>65535)return null
                     }
                     if(width==0)width=columns else if(width!=columns)return null
-                    rows++;if(width.toLong()*rows>MAX_PIXELS)return null
+                    rows++;if(!editing && width.toLong()*rows>MAX_PIXELS)return null
+                    if(editing) PixelGeometry.validate(width,rows)
                 }
                 return if(width>0 && rows>=2)width to rows else null
             }
@@ -116,13 +140,13 @@ object FlicDecoder {
         }
         return null
     }
-    private fun scanFrames(bytes:ByteArray,end:Int):List<Frame>{
+    private fun scanFrames(bytes:ByteArray,end:Int,editing:Boolean):List<Frame>{
         val frames=mutableListOf<Frame>();var at=128
         while(at<end){
             interrupted();requireFormat(end-at>=6,"Truncated recovery frame")
             val size=u32(bytes,at);requireFormat(size>=6 && size<=end-at,"Invalid recovery frame")
             when(u16(bytes,at+4)){
-                0xf1fa->{requireFormat(size>=16 && frames.size<MAX_FRAMES,"FLIC recovery frame limit exceeded");frames+=Frame(at,at+size.toInt(),0)}
+                0xf1fa->{requireFormat(size>=16 && (editing || frames.size<MAX_FRAMES),"FLIC recovery frame limit exceeded");frames+=Frame(at,at+size.toInt(),0)}
                 0xf100->Unit
                 else->throw IOException("Unsupported chunk in incomplete FLIC file")
             }

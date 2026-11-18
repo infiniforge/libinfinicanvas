@@ -22,7 +22,7 @@ object TgaDecoder {
         val bits = bytes[16].toInt() and 255
         val descriptor = bytes[17].toInt() and 255
         if (colorMapType != 0 || imageType !in setOf(2, 3, 10, 11) || width !in 1..40000 || height !in 1..40000 ||
-            width.toLong() * height > 160_000_000L || (descriptor and 0xC0) != 0) return false
+            width.toLong() * height > Int.MAX_VALUE / 4L || (descriptor and 0xC0) != 0) return false
         val grayscale = imageType == 3 || imageType == 11
         if (grayscale && bits != 8 || !grayscale && bits !in setOf(24, 32)) return false
         val dataOffset = 18L + (bytes[0].toInt() and 255)
@@ -47,8 +47,8 @@ object TgaDecoder {
         val bpp = bytes[16].toInt() and 0xFF
         val descriptor = bytes[17].toInt() and 0xFF
 
-        if (width <= 0 || height <= 0 || width > 40_000 || height > 40_000) return null
-        if (width.toLong() * height.toLong() > 160_000_000L) return null
+        if (width <= 0 || height <= 0 || width > 65535 || height > 65535) return null
+        if (width.toLong() * height.toLong() > Int.MAX_VALUE / 4L) return null
 
         val isTopDown = (descriptor and 0x20) != 0
         var offset = 18 + idLength

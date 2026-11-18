@@ -18,6 +18,7 @@ object ImageSignatures {
     fun extension(bytes: ByteArray): String? = identify(bytes)?.let {
         when (it.mimeType) {
             "image/svg+xml" -> "svg"
+            AnimationProjects.MIME_TYPE -> AnimationProjects.EXTENSION
             "image/openraster" -> "ora"
             "image/x-krita", "application/x-krita" -> "kra"
             "image/png" -> "png"
@@ -85,7 +86,7 @@ object ImageSignatures {
         if (starts(bytes, 0x1f, 0x8b) && validSvgz(bytes))
             return result("image/svg+xml", "SVG Vector Image", "Compressed SVG root parsed from a bounded prefix")
         if (starts(bytes, 0x50, 0x4b, 3, 4)) layeredZipMime(bytes)?.let {
-            return result(it, "Layered Image", "Authoring ZIP mimetype entry validated")
+            return result(it, if(it==AnimationProjects.MIME_TYPE) "InfiniCanvas Animation" else "Layered Image", "Authoring ZIP mimetype entry validated")
         }
         if (starts(bytes, 137, 80, 78, 71, 13, 10, 26, 10) && bytes.size >= 33 &&
             be32(bytes, 8) == 13L && ascii(bytes, 12, 4) == "IHDR" &&
@@ -300,6 +301,7 @@ object ImageSignatures {
             val value = output.toByteArray()
             if (value.size > 64) return null
             when (String(value, StandardCharsets.US_ASCII).trim()) {
+                AnimationProjects.MIME_TYPE -> AnimationProjects.MIME_TYPE
                 "image/openraster" -> "image/openraster"
                 "application/x-krita", "image/x-krita" -> "image/x-krita"
                 else -> null
